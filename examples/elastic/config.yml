@@ -8,11 +8,8 @@ probes:
     public_dns:
       hosts:
         - host: 8.8.8.8
-          name: Google
-          color: red
-        - host: 130.61.226.235
-          name: random
-          color: blue
+        - host: 4.2.2.1
+        - host: 208.67.222.222
 
 plugins:
   - name: std_fping
@@ -25,31 +22,22 @@ plugins:
   - name: elastic_loss
     type: elastic
 
-    # will create one file per host
-    # for example: latency-8.8.8.8-avg
-    filename: "{source}-{host}-{field}"
-
     # specified which field to retrieve the value from
     field: loss
+    elastic_index: loss_index
 
-    # whisper configuration
-    #aggregation_method: average
-    #sparse: false
-    #x_files_factor: 0.5
-    #retention:
-    #  - 3s:1d
     #  elastic configuration
-    IP: 169.61.226.235
+    elastic_ip: 127.0.0.1
+
   - name: elastic_avg
     type: elastic
 
-    # will create one file per host
-    # for example: latency-8.8.8.8-avg
-    filename: "{source}-{host}-{field}"
-
     # specified which field to retrieve the value from
     field: avg
+    elastic_index: avg_index
+    
+    # specified which field to retrieve the value from
 
     #  elastic configuration
-    IP: 0.0.0.0
+    elastic_ip: 127.0.0.1
 
