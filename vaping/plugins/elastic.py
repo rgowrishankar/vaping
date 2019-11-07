@@ -9,7 +9,7 @@ except ImportError:
     Elasticsearch = None
 
 @vaping.plugin.register('elastic')
-class ElasticPlugin(vaping.plugins.TimeSeriesDB):
+class ElasticPlugin(vaping.plugins.EmitBase):
 
     """
     Elastic plugin that allows vaping to persist data
@@ -17,47 +17,56 @@ class ElasticPlugin(vaping.plugins.TimeSeriesDB):
     """
 
     def __init__(self, config, ctx):
-        self.config = config
+        super(ElasticPlugin, self).__init__(config, ctx)
+        self.field = self.config.get("field")
+        self.elastic_index = self.config.get("elastic_index","default_vaping_index")
+        self.log.debug("field %s index %s", self.field, self.elastic_index)
+
+    def init(self):
         if not Elasticsearch:
             raise ImportError("Elastic python library not found")
-        super(ElasticPlugin, self).__init__(config, ctx)
-        self.log.debug("Elastic plugin init called, IP %s", self.config.get("IP", "0.0.0.0"))
-        self.es = Elasticsearch([self.config.get("IP", "0.0.0.0")])
+        self.log.debug("Elastic plugin init called, IP %s", self.config.get("elastic_ip", "0.0.0.0"))
+        if 'elastic_ip' not in self.config:
+            msg = "IP address of the Elastic cluster should be specified"
+            self.log.critical(msg)
+            raise ValueError(msg)
+            self.elastic_ip = None
+        else:
+            self.elastic_ip = self.config.get("elastic_ip")
         self.id = 1
 
-    def start(self):
+    def on_start(self):
         # right now it is just stub code
+        self.elastic = None
         self.log.debug("Elastic plugin start called")
+        if self.elastic_ip is not None:
+            try:
+                # custom host with sniffing enabled
+                self.elastic = Elasticsearch(
+                          [self.elastic_ip],
+                sniff_on_start=True,
+                sniff_on_connection_fail=True,
+                sniffer_timeout=10,
+                max_retries=5
+                )
+            except Exception as error:
+                msg = "ElasticSearch Client Error:" + str(error)
+                self.log.critical(msg)
+        else:
+            self.elastic = None
 
-    def create(self, filename):
-        # since connection to elastic is opened in __init this is dummy call as well
-        self.log.debug("Elastic plugin create called filename %s", filename)
+    def on_stop(self):
+        if self.elastic:
+            self.elastic.transport.close()
 
-    def update(self, filename, time, value):
-        self.log.debug("elastic plugin update called filename %s time %s value %s",
-                       filename, time, value)
-        filename_split = filename.split("-")
-        ip = filename_split[1]
-        data_type = filename_split[2]
-        if data_type == "loss":
-            doc = {
-                    'timestamp':datetime.now(),
-                    'loss': value,
-                    'ip': ip
-                  }
-            res = self.es.index(index="loss_index", id=self.id, body=doc)
-            self.log.debug(res['result'])
-        else:        
-            doc = {
-                    'timestamp':datetime.now(),
-                    'latency': value,
-                    'ip': ip
-                  }
-            res = self.es.index(index="latency_index", id=self.id, body=doc)
-            self.log.debug(res['result'])
-        self.id=self.id + 1
-
-    def get(self, filename, from_time, to_time=None):
-        #stubbed out for now
-        self.log.debug("Elastic get called")
-        return None, None
+    def emit(self, message):
+        if isinstance(message.get("data"), list) and self.elastic:
+            for row in message.get("data"):
+                doc = {
+                        'timestamp': message['ts'],
+                        'data': row.get(self.field),
+                        'source': row.get('host')
+                      }
+                res = self.elastic.index(index=self.elastic_index, id=self.id, body=doc)
+                self.log.debug(res['result'])
+                self.id = self.id + 1
